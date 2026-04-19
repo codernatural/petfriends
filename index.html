@@ -23,6 +23,7 @@
                     <span class="coins-icon">🪙</span>
                     <span class="coins-count" id="coins-display">0</span>
                 </button>
+                <button class="icon-btn" id="profile-btn">👤</button>
                 <button class="icon-btn" id="settings-btn">⚙️</button>
             </div>
         </header>
@@ -89,6 +90,9 @@
                     <h2 class="pet-name" id="pet-name">Питомец</h2>
                     <span class="pet-level" id="pet-level">Ур. 1</span>
                 </div>
+                <div class="co-owner-info" id="co-owner-info" style="display: none;">
+                    <span class="co-owner-badge">👥 Совместный</span>
+                </div>
             </div>
 
             <div class="stats-container">
@@ -143,10 +147,73 @@
                 <h2>Мои питомцы</h2>
                 <button class="btn primary small" id="add-pet-btn">+ Создать</button>
             </div>
+            <div class="section-divider">
+                <h3>Личные</h3>
+            </div>
             <div class="pets-grid" id="pets-grid"></div>
             <div class="empty-state" id="pets-empty" style="display: none;">
                 <span class="empty-icon">🌟</span>
                 <p>Нет питомцев</p>
+            </div>
+            
+            <div class="section-divider" style="margin-top: 24px;">
+                <h3>👥 Совместные</h3>
+                <button class="btn secondary small" id="join-shared-btn">Присоединиться</button>
+            </div>
+            <div class="pets-grid shared-grid" id="shared-pets-grid"></div>
+            <div class="empty-state" id="shared-empty" style="display: none;">
+                <span class="empty-icon">🤝</span>
+                <p>Нет совместных питомцев</p>
+                <p class="hint">Пригласи друзей или введи код!</p>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-profile">
+        <div class="screen profile-screen">
+            <div class="profile-header">
+                <div class="profile-avatar" id="profile-avatar">👤</div>
+                <h2 class="profile-name" id="profile-name">Загрузка...</h2>
+                <span class="profile-username" id="profile-username">@username</span>
+            </div>
+            
+            <div class="profile-stats">
+                <div class="profile-stat">
+                    <span class="profile-stat-value" id="profile-coins">0</span>
+                    <span class="profile-stat-label">🪙 Монеты</span>
+                </div>
+                <div class="profile-stat">
+                    <span class="profile-stat-value" id="profile-pets">0</span>
+                    <span class="profile-stat-label">🐾 Питомцы</span>
+                </div>
+                <div class="profile-stat">
+                    <span class="profile-stat-value" id="profile-streak">0</span>
+                    <span class="profile-stat-label">🔥 Дней</span>
+                </div>
+            </div>
+            
+            <div class="profile-actions">
+                <button class="btn secondary" id="invite-friend-btn">
+                    👥 Пригласить друга
+                </button>
+                <button class="btn secondary" id="join-pet-btn">
+                    🔗 Присоединиться к питомцу
+                </button>
+            </div>
+            
+            <div class="invite-section" id="invite-section" style="display: none;">
+                <h3>Код приглашения:</h3>
+                <div class="invite-code-box">
+                    <span class="invite-code" id="invite-code">--------</span>
+                    <button class="btn small" id="copy-code-btn">📋 Копировать</button>
+                </div>
+                <p class="hint">Друг вводит этот код в "Присоединиться к питомцу"</p>
+            </div>
+            
+            <div class="join-section" id="join-section" style="display: none;">
+                <h3>Введите код приглашения:</h3>
+                <input type="text" class="name-input" id="join-code-input" placeholder="ABCD-1234" maxlength="10">
+                <button class="btn primary" id="do-join-btn">Присоединиться</button>
             </div>
         </div>
     </template>
@@ -176,11 +243,9 @@
                 <p class="wheel-subtitle">Крути раз в день!</p>
             </div>
             
-            <div class="wheel-visual" id="wheel-visual">
+            <div class="wheel-visual">
                 <div class="wheel-pointer">▼</div>
-                <div class="wheel-circle">
-                    ${['🍎','🪙','⭐','🍪','🧸','💎','🐟','💊'].map(e => `<div class="wheel-segment"><span>${e}</span></div>`).join('')}
-                </div>
+                <div class="wheel-circle" id="wheel-circle"></div>
             </div>
             
             <div class="wheel-status" id="wheel-status">
@@ -196,10 +261,6 @@
                 <h2>📋 Квесты</h2>
             </div>
             <div class="quests-grid" id="quests-grid"></div>
-            <div class="empty-state" id="quests-empty">
-                <span class="empty-icon">🏆</span>
-                <p>Нет активных квестов</p>
-            </div>
         </div>
     </template>
 

@@ -1,12 +1,11 @@
 /**
- * PetFriends - Storage Module
- * LocalStorage wrapper with debounced persistence
+ * PetFriends - Storage Module v3
+ * LocalStorage + Shared Pets + Invite Codes
  */
 
 const Storage = {
     PREFIX: 'petfriends_',
     DEBOUNCE_MS: 300,
-    
     cache: {},
     saveTimers: {},
     
@@ -31,23 +30,18 @@ const Storage = {
             coins: 100,
             pets: [],
             activePetId: null,
-            achievements: [],
             inventory: [],
             events: [],
-            settings: {
-                soundEnabled: true,
-                hapticEnabled: true
-            },
-            daily: {
-                lastSpin: 0,
-                spinCount: 0,
-                streak: 0,
-                lastVisit: 0
-            },
+            settings: { soundEnabled: true, hapticEnabled: true },
+            daily: { lastSpin: 0, spinCount: 0, streak: 0, lastVisit: 0 },
             quests: [],
             completedQuests: [],
             cooldowns: {},
-            coOpPets: []
+            coOpPets: [],
+            sharedPets: [],
+            inviteCodes: {},
+            user: null,
+            telegramId: null
         };
     },
     
@@ -70,247 +64,264 @@ const Storage = {
     
     set(key, value, immediate = false) {
         this.cache[key] = value;
-        
         if (immediate) {
             this.saveImmediate();
         } else {
-            if (this.saveTimers[key]) {
-                clearTimeout(this.saveTimers[key]);
-            }
-            this.saveTimers[key] = setTimeout(() => {
-                this.saveImmediate();
-            }, this.DEBOUNCE_MS);
+            if (this.saveTimers[key]) clearTimeout(this.saveTimers[key]);
+            this.saveTimers[key] = setTimeout(() => this.saveImmediate(), this.DEBOUNCE_MS);
         }
     },
     
     saveImmediate() {
         try {
-            const userData = JSON.stringify(this.cache);
-            localStorage.setItem(this.PREFIX + 'user', userData);
+            localStorage.setItem(this.PREFIX + 'user', JSON.stringify(this.cache));
         } catch (error) {
             console.error('Storage save error:', error);
         }
     },
     
-    save() {
-        try {
-            const userData = JSON.stringify(this.cache);
-            localStorage.setItem(this.PREFIX + 'user', userData);
-        } catch (error) {
-            console.error('Storage save error:', error);
-        }
-    },
+    save() { this.saveImmediate(); },
     
-    getUser() {
-        return {
-            coins: this.get('coins', 100),
-            pets: this.get('pets', []),
-            activePetId: this.get('activePetId', null),
-            achievements: this.get('achievements', []),
-            inventory: this.get('inventory', []),
-            events: this.get('events', []),
-            settings: this.get('settings', { soundEnabled: true, hapticEnabled: true }),
-            daily: this.get('daily', { lastSpin: 0, spinCount: 0, streak: 0, lastVisit: 0 }),
-            quests: this.get('quests', []),
-            completedQuests: this.get('completedQuests', []),
-            cooldowns: this.get('cooldowns', {}),
-            coOpPets: this.get('coOpPets', [])
-        };
-    },
-    
-    saveUser(userData) {
-        Object.keys(userData).forEach(key => {
-            this.set(key, userData[key], true);
-        });
-    },
-    
-    // Очистка всех данных
     clear() {
         localStorage.removeItem(this.PREFIX + 'user');
         this.cache = {};
     },
     
-    // Работа с монетами
+    // User
+    setUser(user) {
+        this.cache.user = user;
+        this.cache.telegramId = user?.id || null;
+        this.saveImmediate();
+    },
+    
+    getUser() {
+        return this.cache.user || {
+            id: 'local_' + Date.now(),
+            first_name: 'Друг',
+            username: 'local_user'
+        };
+    },
+    
+    // Coins
     addCoins(amount) {
-        const current = this.get('coins', 0);
-        const newTotal = current + amount;
-        this.set('coins', newTotal, true);
-        return newTotal;
+        this.cache.coins = (this.cache.coins || 0) + amount;
+        this.saveImmediate();
+        return this.cache.coins;
     },
     
     spendCoins(amount) {
-        const current = this.get('coins', 0);
-        if (current < amount) return false;
-        this.set('coins', current - amount, true);
+        if ((this.cache.coins || 0) < amount) return false;
+        this.cache.coins -= amount;
+        this.saveImmediate();
         return true;
     },
     
-    // Работа с питомцами
+    getCoins() { return this.cache.coins || 0; },
+    
+    // Pets
+    getAllPets() { return this.cache.pets || []; },
+    
     getActivePet() {
         const activeId = this.get('activePetId');
         if (!activeId) return null;
-        const pets = this.get('pets', []);
-        return pets.find(p => p.id === activeId) || null;
+        return this.cache.pets.find(p => p.id === activeId) || null;
     },
     
     setActivePet(petId) {
-        this.set('activePetId', petId, true);
-    },
-    
-    getAllPets() {
-        return this.get('pets', []);
+        this.cache.activePetId = petId;
+        this.saveImmediate();
     },
     
     addPet(pet) {
-        const pets = this.get('pets', []);
-        pets.push(pet);
-        this.set('pets', pets, true);
-        if (pets.length === 1) {
-            this.setActivePet(pet.id);
-        }
+        this.cache.pets = this.cache.pets || [];
+        this.cache.pets.push(pet);
+        if (!this.cache.activePetId) this.setActivePet(pet.id);
+        this.saveImmediate();
     },
     
     updatePet(petId, updates) {
-        const pets = this.get('pets', []);
+        const pets = this.cache.pets;
         const index = pets.findIndex(p => p.id === petId);
         if (index !== -1) {
             pets[index] = { ...pets[index], ...updates };
-            this.set('pets', pets, true);
+            this.saveImmediate();
         }
     },
     
     deletePet(petId) {
-        let pets = this.get('pets', []);
-        pets = pets.filter(p => p.id !== petId);
-        this.set('pets', pets, true);
-        if (this.get('activePetId') === petId) {
-            this.setActivePet(pets.length > 0 ? pets[0].id : null);
+        this.cache.pets = (this.cache.pets || []).filter(p => p.id !== petId);
+        if (this.cache.activePetId === petId) {
+            this.setActivePet(this.cache.pets[0]?.id || null);
+        }
+        this.saveImmediate();
+    },
+    
+    // Shared Pets
+    getSharedPets() { return this.cache.sharedPets || []; },
+    
+    getMyInviteCodes() { return this.cache.inviteCodes || {}; },
+    
+    generateInviteCode(petId) {
+        const code = this.generateCode();
+        this.cache.inviteCodes = this.cache.inviteCodes || {};
+        this.cache.inviteCodes[code] = { petId, createdAt: Date.now(), used: false };
+        this.saveImmediate();
+        return code;
+    },
+    
+    generateCode() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        let code = '';
+        for (let i = 0; i < 8; i++) {
+            code += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return code;
+    },
+    
+    joinByInviteCode(code) {
+        const codes = this.cache.inviteCodes || {};
+        const invite = codes[code];
+        
+        if (!invite || invite.used) {
+            return { success: false, error: 'Неверный или использованный код' };
+        }
+        
+        // Найти питомца в совместных
+        const sharedPets = this.cache.sharedPets || [];
+        const existing = sharedPets.find(p => p.id === invite.petId);
+        
+        if (existing) {
+            // Уже присоединился
+            return { success: false, error: 'Вы уже присоединились к этому питомцу' };
+        }
+        
+        // Добавить в совместные
+        const allPets = this.cache.pets || [];
+        const pet = allPets.find(p => p.id === invite.petId);
+        
+        if (pet) {
+            sharedPets.push({ ...pet, isCoOwner: true, joinedAt: Date.now() });
+            this.cache.sharedPets = sharedPets;
+            invite.used = true;
+            this.saveImmediate();
+            
+            return { success: true, pet };
+        }
+        
+        return { success: false, error: 'Питомец не найден' };
+    },
+    
+    addToSharedPets(pet) {
+        this.cache.sharedPets = this.cache.sharedPets || [];
+        if (!this.cache.sharedPets.find(p => p.id === pet.id)) {
+            this.cache.sharedPets.push({ ...pet, isCoOwner: true, joinedAt: Date.now() });
+            this.saveImmediate();
         }
     },
     
-    // Работа с кулдаунами
+    // Cooldowns
     getCooldown(key) {
-        const cooldowns = this.get('cooldowns', {});
-        const cooldown = cooldowns[key];
-        if (!cooldown) return { active: false, remaining: 0 };
+        const cooldowns = this.cache.cooldowns || {};
+        const expires = cooldowns[key];
+        if (!expires) return { active: false, remaining: 0 };
         
-        const remaining = cooldown - Date.now();
-        return {
-            active: remaining > 0,
-            remaining: Math.max(0, remaining)
-        };
+        const remaining = expires - Date.now();
+        return { active: remaining > 0, remaining: Math.max(0, remaining) };
     },
     
     setCooldown(key, durationMs) {
-        const cooldowns = this.get('cooldowns', {});
-        cooldowns[key] = Date.now() + durationMs;
-        this.set('cooldowns', cooldowns, true);
+        this.cache.cooldowns = this.cache.cooldowns || {};
+        this.cache.cooldowns[key] = Date.now() + durationMs;
+        this.saveImmediate();
     },
     
-    // Работа с ежедневными наградами
-    getDailyData() {
-        return this.get('daily', { lastSpin: 0, spinCount: 0, streak: 0, lastVisit: 0 });
-    },
-    
-    updateDaily(data) {
-        this.set('daily', data, true);
-    },
+    // Daily
+    getDailyData() { return this.cache.daily || { lastSpin: 0, streak: 0, lastVisit: 0 }; },
     
     canSpinWheel() {
         const daily = this.getDailyData();
-        const lastSpin = daily.lastSpin || 0;
-        const dayMs = 24 * 60 * 60 * 1000;
-        return Date.now() - lastSpin >= dayMs;
+        return Date.now() - (daily.lastSpin || 0) >= 24 * 60 * 60 * 1000;
     },
     
-    // Работа с квестами
-    getQuests() {
-        return this.get('quests', []);
+    updateDaily(data) {
+        this.cache.daily = { ...this.getDailyData(), ...data };
+        this.saveImmediate();
     },
     
-    getCompletedQuests() {
-        return this.get('completedQuests', []);
-    },
-    
-    completeQuest(questId) {
-        const completed = this.get('completedQuests', []);
-        if (!completed.includes(questId)) {
-            completed.push(questId);
-            this.set('completedQuests', completed, true);
-        }
-    },
-    
-    addQuestProgress(action, amount = 1) {
-        const quests = this.get('quests', []);
-        const questIndex = quests.findIndex(q => q.action === action && !q.completed);
-        if (questIndex !== -1) {
-            quests[questIndex].progress = (quests[questIndex].progress || 0) + amount;
-            if (quests[questIndex].progress >= quests[questIndex].target) {
-                quests[questIndex].completed = true;
-            }
-            this.set('quests', quests, true);
-        }
-    },
-    
-    // Работа с инвентарём
+    // Inventory
     addToInventory(item, count = 1) {
-        const inventory = this.get('inventory', []);
-        const existing = inventory.find(i => i.id === item.id);
+        const inv = this.cache.inventory || [];
+        const existing = inv.find(i => i.id === item.id);
         if (existing) {
             existing.count += count;
         } else {
-            inventory.push({ ...item, count });
+            inv.push({ ...item, count });
         }
-        this.set('inventory', count > 0 ? inventory : inventory.filter(i => i.count > 0), true);
+        this.cache.inventory = inv;
+        this.saveImmediate();
     },
     
     removeFromInventory(itemId, count = 1) {
-        const inventory = this.get('inventory', []);
-        const existing = inventory.find(i => i.id === itemId);
+        const inv = this.cache.inventory || [];
+        const existing = inv.find(i => i.id === itemId);
         if (!existing || existing.count < count) return false;
         
         existing.count -= count;
         if (existing.count <= 0) {
-            const index = inventory.findIndex(i => i.id === itemId);
-            inventory.splice(index, 1);
+            const idx = inv.findIndex(i => i.id === itemId);
+            inv.splice(idx, 1);
         }
-        this.set('inventory', inventory, true);
+        this.cache.inventory = inv;
+        this.saveImmediate();
         return true;
     },
     
     getInventoryByCategory(category) {
-        const inventory = this.get('inventory', []);
-        if (category === 'all') return inventory;
-        return inventory.filter(i => i.category === category);
+        const inv = this.cache.inventory || [];
+        if (category === 'all') return inv;
+        return inv.filter(i => i.category === category);
     },
     
-    // Работа с событиями
-    addEvent(event) {
-        const events = this.get('events', []);
-        events.unshift({
-            ...event,
-            id: Date.now().toString(),
-            timestamp: Date.now()
-        });
-        if (events.length > 50) {
-            events.pop();
+    // Quests
+    addQuestProgress(action, amount = 1) {
+        let quests = this.cache.quests || [];
+        const quest = quests.find(q => q.action === action && !q.completed);
+        if (quest) {
+            quest.progress = (quest.progress || 0) + amount;
+            if (quest.progress >= quest.target) {
+                quest.completed = true;
+                this.addCoins(quest.reward);
+            }
+            this.cache.quests = quests;
+            this.saveImmediate();
         }
-        this.set('events', events, true);
+    },
+    
+    getQuests() { return this.cache.quests || []; },
+    
+    initDailyQuests() {
+        if ((this.cache.quests || []).length === 0) {
+            this.cache.quests = [
+                { id: 'feed_5', title: 'Покорми питомца 5 раз', action: 'feed', target: 5, reward: 15, progress: 0, completed: false },
+                { id: 'play_3', title: 'Поиграй 3 раза', action: 'play', target: 3, reward: 20, progress: 0, completed: false },
+                { id: 'spin_wheel', title: 'Крути колесо', action: 'spin', target: 1, reward: 10, progress: 0, completed: false }
+            ];
+            this.saveImmediate();
+        }
+    },
+    
+    // Events
+    addEvent(event) {
+        const events = this.cache.events || [];
+        events.unshift({ ...event, id: Date.now().toString(), timestamp: Date.now() });
+        if (events.length > 50) events.pop();
+        this.cache.events = events;
+        this.saveImmediate();
     },
     
     clearEvents() {
-        this.set('events', [], true);
-    },
-    
-    // Совместные питомцы
-    getCoOpPets() {
-        return this.get('coOpPets', []);
-    },
-    
-    addCoOpPet(pet) {
-        const coOpPets = this.get('coOpPets', []);
-        coOpPets.push(pet);
-        this.set('coOpPets', coOpPets, true);
+        this.cache.events = [];
+        this.saveImmediate();
     }
 };
 
