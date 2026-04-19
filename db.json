@@ -1,0 +1,87 @@
+{
+  "info": "PetFriends Database Schema",
+  "version": "1.0",
+  
+  "users": {
+    "_id": "ObjectId",
+    "telegram_id": "number (unique)",
+    "telegram_username": "string",
+    "telegram_first_name": "string",
+    "telegram_photo_url": "string (optional)",
+    "coins": "number",
+    "created_at": "datetime",
+    "last_active": "datetime",
+    "streak": {
+      "current": "number",
+      "best": "number",
+      "last_visit": "datetime"
+    }
+  },
+
+  "pets": {
+    "_id": "ObjectId",
+    "owner_ids": ["ObjectId"],
+    "name": "string",
+    "type": "string",
+    "personality": "string",
+    "stats": {
+      "hp": "number",
+      "hunger": "number",
+      "mood": "number",
+      "xp": "number",
+      "level": "number"
+    },
+    "evolution_stage": "number",
+    "created_at": "datetime",
+    "last_interaction": "datetime"
+  },
+
+  "cooldown": {
+    "_id": "ObjectId",
+    "user_id": "ObjectId",
+    "type": "string",
+    "expires_at": "datetime"
+  },
+
+  "quests": {
+    "_id": "ObjectId",
+    "user_id": "ObjectId",
+    "quest_id": "string",
+    "progress": "number",
+    "completed": "boolean",
+    "completed_at": "datetime"
+  },
+
+  "daily_rewards": {
+    "_id": "ObjectId",
+    "user_id": "ObjectId",
+    "last_spin": "datetime",
+    "spin_count": "number"
+  },
+
+  "inventory": {
+    "_id": "ObjectId",
+    "user_id": "ObjectId",
+    "item_id": "string",
+    "count": "number"
+  },
+
+  "events": {
+    "_id": "ObjectId",
+    "pet_id": "ObjectId",
+    "user_id": "ObjectId",
+    "icon": "string",
+    "title": "string",
+    "is_special": "boolean",
+    "is_warning": "boolean",
+    "created_at": "datetime"
+  },
+
+  "friends": {
+    "_id": "ObjectId",
+    "user_id": "ObjectId",
+    "friend_id": "ObjectId",
+    "status": "string",
+    "created_at": "datetime"
+  }
+}

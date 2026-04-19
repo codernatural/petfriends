@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>🐾 PetFriends</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles/main.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <span class="logo">🍓</span>
+                <span class="app-name">PetFriends</span>
+            </div>
+            <div class="header-right">
+                <button class="icon-btn" id="coins-btn">
+                    <span class="coins-icon">🪙</span>
+                    <span class="coins-count" id="coins-display">0</span>
+                </button>
+                <button class="icon-btn" id="settings-btn">⚙️</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content" id="main-content"></main>
+
+        <!-- Bottom Nav -->
+        <nav class="bottom-nav">
+            <button class="nav-btn active" data-screen="home">
+                <span class="nav-icon">🏠</span>
+                <span class="nav-label">Главная</span>
+            </button>
+            <button class="nav-btn" data-screen="wheel">
+                <span class="nav-icon">🎰</span>
+                <span class="nav-label">Колесо</span>
+            </button>
+            <button class="nav-btn" data-screen="quests">
+                <span class="nav-icon">📋</span>
+                <span class="nav-label">Квесты</span>
+            </button>
+            <button class="nav-btn" data-screen="games">
+                <span class="nav-icon">🎮</span>
+                <span class="nav-label">Игры</span>
+            </button>
+            <button class="nav-btn" data-screen="pets">
+                <span class="nav-icon">🐾</span>
+                <span class="nav-label">Питомцы</span>
+            </button>
+            <button class="nav-btn" data-screen="inventory">
+                <span class="nav-icon">📦</span>
+                <span class="nav-label">Рюкзак</span>
+            </button>
+        </nav>
+
+        <!-- Modal -->
+        <div class="modal-overlay" id="modal-overlay">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 class="modal-title" id="modal-title"></h3>
+                    <button class="modal-close" id="modal-close">✕</button>
+                </div>
+                <div class="modal-body" id="modal-body"></div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast-container" id="toast-container"></div>
+    </div>
+
+    <!-- TEMPLATES -->
+    <template id="tpl-home">
+        <div class="screen home-screen">
+            <div id="streak-display" class="streak-badge" style="display: none;">
+                <span></span>
+            </div>
+            
+            <div class="pet-display" id="pet-display">
+                <div class="pet-avatar-container">
+                    <div class="pet-avatar" id="active-pet-avatar">🐾</div>
+                    <div class="pet-status-indicator" id="pet-status-indicator">😊</div>
+                </div>
+                <div class="pet-name-level">
+                    <h2 class="pet-name" id="pet-name">Питомец</h2>
+                    <span class="pet-level" id="pet-level">Ур. 1</span>
+                </div>
+            </div>
+
+            <div class="stats-container">
+                <div class="stat-bar">
+                    <span class="stat-icon">❤️</span>
+                    <div class="stat-progress"><div class="stat-fill hp" id="stat-hp"></div></div>
+                    <span class="stat-value" id="stat-hp-value">100</span>
+                </div>
+                <div class="stat-bar">
+                    <span class="stat-icon">🍎</span>
+                    <div class="stat-progress"><div class="stat-fill hunger" id="stat-hunger"></div></div>
+                    <span class="stat-value" id="stat-hunger-value">100</span>
+                </div>
+                <div class="stat-bar">
+                    <span class="stat-icon">😊</span>
+                    <div class="stat-progress"><div class="stat-fill mood" id="stat-mood"></div></div>
+                    <span class="stat-value" id="stat-mood-value">100</span>
+                </div>
+                <div class="stat-bar xp-bar">
+                    <span class="stat-icon">⭐</span>
+                    <div class="stat-progress"><div class="stat-fill xp" id="stat-xp"></div></div>
+                    <span class="stat-value" id="stat-xp-value">0/100</span>
+                </div>
+            </div>
+
+            <div class="quick-actions" id="quick-actions">
+                <button class="action-btn primary" data-action="feed">
+                    <span class="action-icon">🍽️</span>
+                    <span class="action-label">Кормить</span>
+                </button>
+                <button class="action-btn secondary" data-action="play">
+                    <span class="action-icon">🎮</span>
+                    <span class="action-label">Играть</span>
+                </button>
+                <button class="action-btn accent" data-action="care">
+                    <span class="action-icon">🚿</span>
+                    <span class="action-label">Уход</span>
+                </button>
+            </div>
+
+            <div class="no-pet-message" id="no-pet-message" style="display: none;">
+                <span class="empty-icon">🐾</span>
+                <p>Создай своего питомца!</p>
+                <button class="btn primary" id="create-first-pet-btn">Создать</button>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-pets">
+        <div class="screen pets-screen">
+            <div class="screen-header">
+                <h2>Мои питомцы</h2>
+                <button class="btn primary small" id="add-pet-btn">+ Создать</button>
+            </div>
+            <div class="pets-grid" id="pets-grid"></div>
+            <div class="empty-state" id="pets-empty" style="display: none;">
+                <span class="empty-icon">🌟</span>
+                <p>Нет питомцев</p>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-inventory">
+        <div class="screen inventory-screen">
+            <div class="screen-header">
+                <h2>Рюкзак</h2>
+                <button class="btn secondary small" id="shop-btn">🛒 Магазин</button>
+            </div>
+            <div class="inventory-tabs">
+                <button class="tab-btn active" data-tab="food">🍽️ Еда</button>
+                <button class="tab-btn" data-tab="care">🚿 Уход</button>
+            </div>
+            <div class="inventory-grid" id="inventory-grid"></div>
+            <div class="empty-state" id="inventory-empty" style="display: none;">
+                <span class="empty-icon">📦</span>
+                <p>Пусто</p>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-wheel">
+        <div class="screen wheel-screen">
+            <div class="wheel-header">
+                <h2>🎰 Колесо удачи</h2>
+                <p class="wheel-subtitle">Крути раз в день!</p>
+            </div>
+            
+            <div class="wheel-visual" id="wheel-visual">
+                <div class="wheel-pointer">▼</div>
+                <div class="wheel-circle">
+                    ${['🍎','🪙','⭐','🍪','🧸','💎','🐟','💊'].map(e => `<div class="wheel-segment"><span>${e}</span></div>`).join('')}
+                </div>
+            </div>
+            
+            <div class="wheel-status" id="wheel-status">
+                <span class="green">🎉 Доступно!</span>
+            </div>
+            <button class="btn primary wheel-spin-btn" id="spin-now-btn">🎰 КРУТИТЬ!</button>
+        </div>
+    </template>
+
+    <template id="tpl-quests">
+        <div class="screen quests-screen">
+            <div class="screen-header">
+                <h2>📋 Квесты</h2>
+            </div>
+            <div class="quests-grid" id="quests-grid"></div>
+            <div class="empty-state" id="quests-empty">
+                <span class="empty-icon">🏆</span>
+                <p>Нет активных квестов</p>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-games">
+        <div class="screen games-screen">
+            <div class="screen-header">
+                <h2>🎮 Мини-игры</h2>
+            </div>
+            <p class="games-subtitle">Зарабатывай монеты!</p>
+            <div class="games-grid" id="games-grid"></div>
+        </div>
+    </template>
+
+    <script src="js/events.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/telegram.js"></script>
+    <script src="js/pet.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
