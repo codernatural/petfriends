@@ -164,7 +164,7 @@
             <div class="empty-state" id="shared-empty" style="display: none;">
                 <span class="empty-icon">🤝</span>
                 <p>Нет совместных питомцев</p>
-                <p class="hint">Пригласи друзей или введи код!</p>
+                <p class="hint">Нажми "Тестовый друг" в профиле!</p>
             </div>
         </div>
     </template>
@@ -192,7 +192,14 @@
                 </div>
             </div>
             
+            <div class="demo-notice" id="demo-notice">
+                <p>💡 <strong>Подсказка:</strong> нажми "Тестовый друг" чтобы создать демо-питомца!</p>
+            </div>
+            
             <div class="profile-actions">
+                <button class="btn accent" id="demo-friend-btn">
+                    🤝 Тестовый друг (Demo)
+                </button>
                 <button class="btn secondary" id="invite-friend-btn">
                     👥 Пригласить друга
                 </button>
@@ -207,7 +214,7 @@
                     <span class="invite-code" id="invite-code">--------</span>
                     <button class="btn small" id="copy-code-btn">📋 Копировать</button>
                 </div>
-                <p class="hint">Друг вводит этот код в "Присоединиться к питомцу"</p>
+                <p class="hint">Вставь этот код в "Присоединиться к питомцу"</p>
             </div>
             
             <div class="join-section" id="join-section" style="display: none;">

@@ -1,10 +1,11 @@
 /**
- * PetFriends - UI Module v3
- * Profile + Shared Pets + Invite System
+ * PetFriends - UI Module v3.1
+ * Profile + Shared Pets + Demo Mode
  */
 
 const UI = {
     currentScreen: 'home',
+    demoMode: false,
     
     init() {
         this.bindEvents();
@@ -84,7 +85,6 @@ const UI = {
         this.updateActivePetDisplay();
         this.bindActionButtons();
         
-        // Streak
         const daily = Storage.getDailyData();
         const streakEl = document.getElementById('streak-display');
         if (streakEl && daily.streak > 0) {
@@ -92,7 +92,6 @@ const UI = {
             streakEl.querySelector('span').textContent = `🔥 ${daily.streak} дней`;
         }
         
-        // Co-owner badge
         const coOwnerEl = document.getElementById('co-owner-info');
         if (coOwnerEl) {
             const shared = Storage.getSharedPets();
@@ -165,6 +164,22 @@ const UI = {
         document.getElementById('profile-pets').textContent = Storage.getAllPets().length + Storage.getSharedPets().length;
         document.getElementById('profile-streak').textContent = daily.streak || 0;
         
+        // Demo mode notice
+        const demoNotice = document.getElementById('demo-notice');
+        if (demoNotice) {
+            demoNotice.innerHTML = `
+                <div class="demo-notice">
+                    <p>⚠️ <strong>Демо-режим:</strong> для совместной игры нужен сервер.</p>
+                    <p>Нажми "Тестовый друг" чтобы попробовать!</p>
+                </div>
+            `;
+        }
+        
+        // Demo button - создать тестового друга в том же браузере
+        document.getElementById('demo-friend-btn')?.addEventListener('click', () => {
+            this.createDemoFriend();
+        });
+        
         // Invite button
         document.getElementById('invite-friend-btn')?.addEventListener('click', () => {
             document.getElementById('invite-section').style.display = 
@@ -193,7 +208,7 @@ const UI = {
             this.showToast('Код скопирован!', 'success');
         });
         
-        // Join by code
+        // Join by code - Demo mode: добавляем напрямую в sharedPets
         document.getElementById('do-join-btn')?.addEventListener('click', () => {
             const code = document.getElementById('join-code-input')?.value?.trim().toUpperCase();
             if (!code) {
@@ -201,14 +216,50 @@ const UI = {
                 return;
             }
             
-            const result = Storage.joinByInviteCode(code);
-            if (result.success) {
-                this.showToast(`Присоединился к ${result.pet.name}! 👥`, 'success');
+            // Demo: ищем питомца по коду в demoPets
+            const demoPets = JSON.parse(localStorage.getItem('petfriends_demo_pets') || '[]');
+            const demoPet = demoPets.find(p => p.inviteCode === code && !p.usedByDemo);
+            
+            if (demoPet) {
+                demoPet.usedByDemo = true;
+                localStorage.setItem('petfriends_demo_pets', JSON.stringify(demoPets));
+                
+                Storage.addToSharedPets(demoPet.pet);
+                this.showToast(`Присоединился к ${demoPet.pet.name}! 👥`, 'success');
                 this.navigateTo('pets');
             } else {
-                this.showToast(result.error || 'Ошибка', 'warning');
+                this.showToast('Код не найден. Сначала нажми "Тестовый друг"!', 'warning');
             }
         });
+    },
+    
+    createDemoFriend() {
+        const activePet = Storage.getActivePet();
+        if (!activePet) {
+            this.showToast('Сначала создай питомца!', 'warning');
+            return;
+        }
+        
+        // Создаём тестового друга с копией питомца
+        const code = Storage.generateInviteCode(activePet.id);
+        
+        const demoPets = JSON.parse(localStorage.getItem('petfriends_demo_pets') || '[]');
+        demoPets.push({
+            pet: { ...activePet, name: activePet.name + ' (друг)' },
+            inviteCode: code,
+            usedByDemo: false,
+            createdAt: Date.now()
+        });
+        localStorage.setItem('petfriends_demo_pets', JSON.stringify(demoPets));
+        
+        // Добавляем друга в свой список совместных (для демо)
+        Storage.addToSharedPets({ ...activePet, name: activePet.name + ' (ты)' });
+        
+        this.showToast(`Тестовый друг создан! Код: ${code}`, 'success');
+        
+        // Показываем код ещё раз
+        document.getElementById('invite-section').style.display = 'block';
+        document.getElementById('invite-code').textContent = code;
     },
     
     // ========== PETS ==========
@@ -347,8 +398,7 @@ const UI = {
         });
         
         document.getElementById('create-back')?.addEventListener('click', () => {
-            let next = state.step - 1;
-            state.step = Math.max(1, next);
+            state.step = Math.max(1, state.step - 1);
             this.showCreateStep(state);
         });
         
@@ -358,8 +408,7 @@ const UI = {
                 state.name = document.getElementById('pet-name-input')?.value?.trim() || '';
                 if (!state.name) { this.showToast('Введи имя', 'warning'); return; }
             }
-            let next = state.step + 1;
-            state.step = Math.min(3, next);
+            state.step = Math.min(3, state.step + 1);
             this.showCreateStep(state);
         });
         
@@ -431,13 +480,10 @@ const UI = {
     },
     
     bindFeedModal() {
-        const modal = document.getElementById('modal-body');
         const pet = Storage.getActivePet();
         
-        modal.querySelector('[data-action="quick"]')?.addEventListener('click', (e) => {
-            if (e.target.disabled) return;
-            if (!pet) return;
-            
+        document.querySelector('[data-action="quick"]')?.addEventListener('click', (e) => {
+            if (e.target.disabled || !pet) return;
             PetManager.feedPet(pet.id);
             Storage.setCooldown('quickFeed', 60000);
             this.closeModal();
@@ -445,7 +491,7 @@ const UI = {
             TelegramAPI.haptic('success');
         });
         
-        modal.querySelectorAll('[data-item]').forEach(btn => {
+        document.querySelectorAll('[data-item]').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (btn.disabled) return;
                 const item = FoodItems[btn.dataset.item];
@@ -468,10 +514,9 @@ const UI = {
             </div>
         `);
         
-        const modal = document.getElementById('modal-body');
         const pet = Storage.getActivePet();
         
-        modal.querySelectorAll('.action-option').forEach(btn => {
+        document.querySelectorAll('.action-option').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (!pet) return;
                 
@@ -504,10 +549,9 @@ const UI = {
             </div>
         `);
         
-        const modal = document.getElementById('modal-body');
         const pet = Storage.getActivePet();
         
-        modal.querySelectorAll('.action-option').forEach(btn => {
+        document.querySelectorAll('.action-option').forEach(btn => {
             btn.addEventListener('click', () => {
                 if (!pet) return;
                 
@@ -722,6 +766,7 @@ const UI = {
         document.getElementById('reset-data')?.addEventListener('click', () => {
             if (confirm('Удалить всех питомцев?')) {
                 Storage.clear();
+                localStorage.removeItem('petfriends_demo_pets');
                 location.reload();
             }
         });
