@@ -1,17 +1,46 @@
 /**
- * PetFriends - UI Module v3.1
- * Profile + Shared Pets + Demo Mode
+ * PetFriends - UI Module v3.2
+ * Profile + Real Shared Pets
  */
 
 const UI = {
     currentScreen: 'home',
-    demoMode: false,
     
     init() {
         this.bindEvents();
         this.renderScreen('home');
         this.updateCoinsDisplay();
         this.initUserProfile();
+        this.initAPI();
+    },
+    
+    async initAPI() {
+        const connected = await API.init();
+        if (connected) {
+            const authed = await API.auth();
+            if (authed.success) {
+                console.log('🐾 API авторизован');
+                await this.syncFromServer();
+            }
+        }
+    },
+    
+    async syncFromServer() {
+        if (!API.connected) return;
+        
+        const pets = await API.getPets();
+        const sharedPets = await API.getSharedPets();
+        const inventory = await API.getInventory();
+        
+        if (pets) {
+            Storage.set('pets', pets);
+        }
+        if (sharedPets) {
+            Storage.set('sharedPets', sharedPets);
+        }
+        if (inventory) {
+            Storage.set('inventory', inventory);
+        }
     },
     
     bindEvents() {
@@ -154,7 +183,7 @@ const UI = {
     },
     
     // ========== PROFILE ==========
-    initProfileScreen() {
+    async initProfileScreen() {
         const user = Storage.getUser();
         const daily = Storage.getDailyData();
         
@@ -164,27 +193,14 @@ const UI = {
         document.getElementById('profile-pets').textContent = Storage.getAllPets().length + Storage.getSharedPets().length;
         document.getElementById('profile-streak').textContent = daily.streak || 0;
         
-        // Demo mode notice
-        const demoNotice = document.getElementById('demo-notice');
-        if (demoNotice) {
-            demoNotice.innerHTML = `
-                <div class="demo-notice">
-                    <p>⚠️ <strong>Демо-режим:</strong> для совместной игры нужен сервер.</p>
-                    <p>Нажми "Тестовый друг" чтобы попробовать!</p>
-                </div>
-            `;
-        }
-        
-        // Demo button - создать тестового друга в том же браузере
-        document.getElementById('demo-friend-btn')?.addEventListener('click', () => {
-            this.createDemoFriend();
-        });
-        
         // Invite button
         document.getElementById('invite-friend-btn')?.addEventListener('click', () => {
             document.getElementById('invite-section').style.display = 
                 document.getElementById('invite-section').style.display === 'none' ? 'block' : 'none';
             document.getElementById('join-section').style.display = 'none';
+            
+            // Generate invite code via API
+            this.generateInviteCode();
         });
         
         // Join button
@@ -194,13 +210,6 @@ const UI = {
             document.getElementById('invite-section').style.display = 'none';
         });
         
-        // Generate code
-        const activePet = Storage.getActivePet();
-        if (activePet) {
-            const code = Storage.generateInviteCode(activePet.id);
-            document.getElementById('invite-code').textContent = code;
-        }
-        
         // Copy code
         document.getElementById('copy-code-btn')?.addEventListener('click', () => {
             const code = document.getElementById('invite-code').textContent;
@@ -208,58 +217,58 @@ const UI = {
             this.showToast('Код скопирован!', 'success');
         });
         
-        // Join by code - Demo mode: добавляем напрямую в sharedPets
+        // Join by code
         document.getElementById('do-join-btn')?.addEventListener('click', () => {
-            const code = document.getElementById('join-code-input')?.value?.trim().toUpperCase();
-            if (!code) {
-                this.showToast('Введите код', 'warning');
-                return;
-            }
-            
-            // Demo: ищем питомца по коду в demoPets
-            const demoPets = JSON.parse(localStorage.getItem('petfriends_demo_pets') || '[]');
-            const demoPet = demoPets.find(p => p.inviteCode === code && !p.usedByDemo);
-            
-            if (demoPet) {
-                demoPet.usedByDemo = true;
-                localStorage.setItem('petfriends_demo_pets', JSON.stringify(demoPets));
-                
-                Storage.addToSharedPets(demoPet.pet);
-                this.showToast(`Присоединился к ${demoPet.pet.name}! 👥`, 'success');
-                this.navigateTo('pets');
-            } else {
-                this.showToast('Код не найден. Сначала нажми "Тестовый друг"!', 'warning');
-            }
+            this.joinByCode();
         });
     },
     
-    createDemoFriend() {
-        const activePet = Storage.getActivePet();
-        if (!activePet) {
+    async generateInviteCode() {
+        const pet = Storage.getActivePet();
+        if (!pet) {
             this.showToast('Сначала создай питомца!', 'warning');
             return;
         }
         
-        // Создаём тестового друга с копией питомца
-        const code = Storage.generateInviteCode(activePet.id);
+        if (API.connected) {
+            const result = await API.inviteFriend(pet.id);
+            if (result?.code) {
+                document.getElementById('invite-code').textContent = result.code;
+                return;
+            }
+        }
         
-        const demoPets = JSON.parse(localStorage.getItem('petfriends_demo_pets') || '[]');
-        demoPets.push({
-            pet: { ...activePet, name: activePet.name + ' (друг)' },
-            inviteCode: code,
-            usedByDemo: false,
-            createdAt: Date.now()
-        });
-        localStorage.setItem('petfriends_demo_pets', JSON.stringify(demoPets));
-        
-        // Добавляем друга в свой список совместных (для демо)
-        Storage.addToSharedPets({ ...activePet, name: activePet.name + ' (ты)' });
-        
-        this.showToast(`Тестовый друг создан! Код: ${code}`, 'success');
-        
-        // Показываем код ещё раз
-        document.getElementById('invite-section').style.display = 'block';
+        // Fallback: generate local code
+        const code = crypto.randomUUID().substring(0, 8).toUpperCase();
         document.getElementById('invite-code').textContent = code;
+        
+        // Save to localStorage for demo
+        Storage.set(`invite_${pet.id}`, code);
+    },
+    
+    async joinByCode() {
+        const code = document.getElementById('join-code-input')?.value?.trim().toUpperCase();
+        if (!code) {
+            this.showToast('Введите код', 'warning');
+            return;
+        }
+        
+        if (API.connected) {
+            const result = await API.joinByCode(code);
+            if (result?.pet) {
+                Storage.addToSharedPets(result.pet);
+                this.showToast(`Присоединился к ${result.pet.name}! 👥`, 'success');
+                document.getElementById('join-code-input').value = '';
+                this.navigateTo('pets');
+                return;
+            } else if (result?.error) {
+                this.showToast(result.error, 'warning');
+                return;
+            }
+        }
+        
+        // Offline mode
+        this.showToast('Сервер недоступен. Попробуй позже!', 'warning');
     },
     
     // ========== PETS ==========
@@ -412,13 +421,19 @@ const UI = {
             this.showCreateStep(state);
         });
         
-        document.getElementById('create-finish')?.addEventListener('click', () => {
+        document.getElementById('create-finish')?.addEventListener('click', async () => {
             if (!state.type || !state.name || !state.personality) {
                 this.showToast('Заполни все поля', 'warning');
                 return;
             }
             
             const pet = PetManager.createPet(state);
+            
+            // Sync to server
+            if (API.connected) {
+                await API.createPet(state);
+            }
+            
             this.closeModal();
             this.showToast(`${pet.name} создан! 🎉`, 'success');
             this.navigateTo('home');
@@ -449,14 +464,13 @@ const UI = {
     showFeedModal() {
         const food = Object.values(FoodItems);
         const inv = Storage.cache.inventory || [];
-        const cd = Storage.getCooldown('quickFeed');
         
         this.openModal('🍽️ Кормить', `
             <div class="action-content">
-                <button class="action-option ${cd.active ? 'disabled' : ''}" data-action="quick">
+                <button class="action-option" data-action="quick">
                     <span class="action-icon">🍽️</span>
                     <div>
-                        <span class="action-name">Просто покормить ${cd.active ? `(${Math.ceil(cd.remaining/60000)}м)` : ''}</span>
+                        <span class="action-name">Просто покормить</span>
                         <span class="action-effect">+20 голод</span>
                     </div>
                 </button>
@@ -482,10 +496,9 @@ const UI = {
     bindFeedModal() {
         const pet = Storage.getActivePet();
         
-        document.querySelector('[data-action="quick"]')?.addEventListener('click', (e) => {
-            if (e.target.disabled || !pet) return;
+        document.querySelector('[data-action="quick"]')?.addEventListener('click', () => {
+            if (!pet) return;
             PetManager.feedPet(pet.id);
-            Storage.setCooldown('quickFeed', 60000);
             this.closeModal();
             this.showToast(`${pet.name} поел! +20`, 'success');
             TelegramAPI.haptic('success');
@@ -517,7 +530,7 @@ const UI = {
         const pet = Storage.getActivePet();
         
         document.querySelectorAll('.action-option').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 if (!pet) return;
                 
                 let effects = {};
@@ -533,6 +546,11 @@ const UI = {
                 p.checkLevelUp();
                 
                 Storage.updatePet(p.id, p.toJSON());
+                
+                // Sync to server
+                if (API.connected) {
+                    await API.updatePet(p.id, 'play', effects);
+                }
                 
                 this.closeModal();
                 this.showToast(`${p.name} весело проводит время!`, 'success');
@@ -552,7 +570,7 @@ const UI = {
         const pet = Storage.getActivePet();
         
         document.querySelectorAll('.action-option').forEach(btn => {
-            btn.addEventListener('click', () => {
+            btn.addEventListener('click', async () => {
                 if (!pet) return;
                 
                 const p = new Pet(pet);
@@ -560,6 +578,10 @@ const UI = {
                 if (btn.dataset.action === 'rest') p.stats.hp = Math.min(100, p.stats.hp + 10);
                 
                 Storage.updatePet(p.id, p.toJSON());
+                
+                if (API.connected) {
+                    await API.updatePet(p.id, 'care', { hp: 10 });
+                }
                 
                 this.closeModal();
                 this.showToast(`${p.name} освежился!`, 'success');
@@ -577,16 +599,18 @@ const UI = {
                 : '<span>Следующее вращение завтра</span>';
         }
         
-        document.getElementById('spin-now-btn')?.addEventListener('click', () => {
-            this.spinWheel();
-        });
+        document.getElementById('spin-now-btn')?.addEventListener('click', () => this.spinWheel());
     },
     
-    spinWheel() {
+    async spinWheel() {
         const result = PetManager.spinWheel();
         if (!result.success) {
             this.showToast(result.error, 'warning');
             return;
+        }
+        
+        if (API.connected) {
+            await API.spinWheel();
         }
         
         this.showToast(`Выиграл: ${result.prize.name} ${result.prize.emoji}!`, 'success');
@@ -766,7 +790,6 @@ const UI = {
         document.getElementById('reset-data')?.addEventListener('click', () => {
             if (confirm('Удалить всех питомцев?')) {
                 Storage.clear();
-                localStorage.removeItem('petfriends_demo_pets');
                 location.reload();
             }
         });

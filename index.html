@@ -164,7 +164,7 @@
             <div class="empty-state" id="shared-empty" style="display: none;">
                 <span class="empty-icon">🤝</span>
                 <p>Нет совместных питомцев</p>
-                <p class="hint">Нажми "Тестовый друг" в профиле!</p>
+                <p class="hint">Используй код приглашения!</p>
             </div>
         </div>
     </template>
@@ -192,14 +192,7 @@
                 </div>
             </div>
             
-            <div class="demo-notice" id="demo-notice">
-                <p>💡 <strong>Подсказка:</strong> нажми "Тестовый друг" чтобы создать демо-питомца!</p>
-            </div>
-            
             <div class="profile-actions">
-                <button class="btn accent" id="demo-friend-btn">
-                    🤝 Тестовый друг (Demo)
-                </button>
                 <button class="btn secondary" id="invite-friend-btn">
                     👥 Пригласить друга
                 </button>
@@ -214,7 +207,7 @@
                     <span class="invite-code" id="invite-code">--------</span>
                     <button class="btn small" id="copy-code-btn">📋 Копировать</button>
                 </div>
-                <p class="hint">Вставь этот код в "Присоединиться к питомцу"</p>
+                <p class="hint">Друг вводит этот код в "Присоединиться"</p>
             </div>
             
             <div class="join-section" id="join-section" style="display: none;">
@@ -284,6 +277,7 @@
     <script src="js/events.js"></script>
     <script src="js/storage.js"></script>
     <script src="js/telegram.js"></script>
+    <script src="js/api.js"></script>
     <script src="js/pet.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
