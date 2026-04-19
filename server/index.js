@@ -13,7 +13,7 @@ const app = express();
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-key';
 const HOST = '0.0.0.0'; // Слушать на всех интерфейсах
 
