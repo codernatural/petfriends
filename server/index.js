@@ -1,6 +1,6 @@
 /**
- * PetFriends Server - API Backend
- * Express + Telegram WebApp Auth + Shared Pets
+ * PetFriends Server - Full API Backend
+ * VPS Deployment Ready
  */
 
 require('dotenv').config();
@@ -10,31 +10,27 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-key';
+const HOST = '0.0.0.0'; // Слушать на всех интерфейсах
 
-// ============ IN-MEMORY DATABASE (для демо, заменить на MongoDB в проде) ============
+// Простая in-memory база данных
 const db = {
     users: new Map(),
     pets: new Map(),
     quests: new Map(),
     inventory: new Map(),
     events: new Map(),
-    dailyRewards: new Map(),
-    friends: new Map(),
-    cooldowns: new Map()
+    cooldowns: new Map(),
+    invites: new Map() // Ключ: код приглашения, Значение: { petId, userId, createdAt }
 };
 
 // ============ TELEGRAM AUTH ============
-function verifyTelegramWebAppData(initData) {
-    if (!TELEGRAM_BOT_TOKEN) {
-        console.log('No bot token configured, skipping verification');
-        return true;
-    }
+function verifyTelegramData(initData, botToken) {
+    if (!botToken || !initData) return true;
     
     try {
         const params = new URLSearchParams(initData);
@@ -46,12 +42,12 @@ function verifyTelegramWebAppData(initData) {
             .map(([key, value]) => `${key}=${value}`)
             .join('\n');
         
-        const secretKey = crypto.createHmac('sha256', TELEGRAM_BOT_TOKEN).update('WebAppData');
-        const calculatedHash = crypto.createHmac('sha256', secretKey.digest()).update(dataCheckString).digest('hex');
+        const secretKey = crypto.createHmac('sha256', botToken).update('WebAppData').digest();
+        const calculatedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
         
         return hash === calculatedHash;
     } catch (e) {
-        console.error('Telegram auth error:', e);
+        console.error('Auth error:', e.message);
         return false;
     }
 }
@@ -60,11 +56,10 @@ function generateToken(userId) {
     return jwt.sign({ userId }, JWT_SECRET, { expiresIn: '30d' });
 }
 
-function verifyToken(req, res, next) {
+function authMiddleware(req, res, next) {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) {
-        return res.status(401).json({ error: 'No token' });
-    }
+    if (!token) return res.status(401).json({ error: 'No token' });
+    
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         req.userId = decoded.userId;
@@ -74,34 +69,35 @@ function verifyToken(req, res, next) {
     }
 }
 
-// ============ USER ROUTES ============
+// ============ AUTH ============
 app.post('/api/auth', (req, res) => {
-    const { initData } = req.body;
+    const { initData, bot_token } = req.body;
     
-    if (!verifyTelegramWebAppData(initData)) {
-        return res.status(403).json({ error: 'Invalid Telegram data' });
+    // Верификация (опционально)
+    if (bot_token && !verifyTelegramData(initData, bot_token)) {
+        return res.status(403).json({ error: 'Invalid data' });
     }
     
-    // Parse init data
-    const params = new URLSearchParams(initData);
-    const userData = JSON.parse(params.get('user') || '{}');
+    // Парсим данные пользователя
+    let userData = { id: Date.now(), first_name: 'User', username: 'user' };
     
-    if (!userData.id) {
-        return res.status(400).json({ error: 'No user data' });
+    if (initData) {
+        try {
+            const params = new URLSearchParams(initData);
+            const user = JSON.parse(params.get('user') || '{}');
+            if (user.id) userData = user;
+        } catch (e) {}
     }
     
-    const telegramId = userData.id;
-    
-    // Find or create user
-    let user = Array.from(db.users.values()).find(u => u.telegram_id === telegramId);
+    // Найти или создать пользователя
+    let user = Array.from(db.users.values()).find(u => u.telegram_id === userData.id);
     
     if (!user) {
         user = {
             _id: crypto.randomUUID(),
-            telegram_id: telegramId,
+            telegram_id: userData.id,
             telegram_username: userData.username || '',
             telegram_first_name: userData.first_name || '',
-            telegram_photo_url: userData.photo_url || '',
             coins: 100,
             created_at: new Date().toISOString(),
             last_active: new Date().toISOString(),
@@ -110,35 +106,26 @@ app.post('/api/auth', (req, res) => {
         db.users.set(user._id, user);
     }
     
-    // Update last active
+    // Обновить streak
     user.last_active = new Date().toISOString();
-    
-    // Check streak
     const dayMs = 24 * 60 * 60 * 1000;
     const now = Date.now();
     
     if (user.streak.last_visit) {
-        const daysSince = Math.floor((now - new Date(user.streak.last_visit).getTime()) / dayMs);
-        if (daysSince === 1) {
-            user.streak.current++;
-        } else if (daysSince > 1) {
-            user.streak.current = 1;
-        }
+        const days = Math.floor((now - new Date(user.streak.last_visit).getTime()) / dayMs);
+        if (days === 1) user.streak.current++;
+        else if (days > 1) user.streak.current = 1;
     } else {
         user.streak.current = 1;
     }
     
-    if (user.streak.current > user.streak.best) {
-        user.streak.best = user.streak.current;
-    }
-    
+    if (user.streak.current > user.streak.best) user.streak.best = user.streak.current;
     user.streak.last_visit = new Date().toISOString();
+    
     db.users.set(user._id, user);
     
-    const token = generateToken(user._id);
-    
     res.json({
-        token,
+        token: generateToken(user._id),
         user: {
             id: user._id,
             name: user.telegram_first_name,
@@ -149,11 +136,9 @@ app.post('/api/auth', (req, res) => {
     });
 });
 
-app.get('/api/user', verifyToken, (req, res) => {
+app.get('/api/user', authMiddleware, (req, res) => {
     const user = db.users.get(req.userId);
-    if (!user) {
-        return res.status(404).json({ error: 'User not found' });
-    }
+    if (!user) return res.status(404).json({ error: 'Not found' });
     
     res.json({
         id: user._id,
@@ -164,25 +149,20 @@ app.get('/api/user', verifyToken, (req, res) => {
     });
 });
 
-// ============ PETS ROUTES ============
-app.get('/api/pets', verifyToken, (req, res) => {
-    const userPets = Array.from(db.pets.values()).filter(p => 
-        p.owner_ids.includes(req.userId)
-    );
-    
-    res.json(userPets);
+// ============ PETS ============
+app.get('/api/pets', authMiddleware, (req, res) => {
+    const pets = Array.from(db.pets.values()).filter(p => p.owner_ids.includes(req.userId));
+    res.json(pets);
 });
 
-app.get('/api/pets/shared', verifyToken, (req, res) => {
-    // Питомцы, которыми владеют несколько пользователей
-    const sharedPets = Array.from(db.pets.values()).filter(p => 
+app.get('/api/pets/shared', authMiddleware, (req, res) => {
+    const pets = Array.from(db.pets.values()).filter(p => 
         p.owner_ids.length > 1 && p.owner_ids.includes(req.userId)
     );
-    
-    res.json(sharedPets);
+    res.json(pets);
 });
 
-app.post('/api/pets', verifyToken, (req, res) => {
+app.post('/api/pets', authMiddleware, (req, res) => {
     const { name, type, personality } = req.body;
     
     const pet = {
@@ -192,55 +172,46 @@ app.post('/api/pets', verifyToken, (req, res) => {
         type: type || 'cat',
         personality: personality || 'active',
         stats: { hp: 100, hunger: 100, mood: 100, xp: 0, level: 1 },
-        evolution_stage: 1,
         created_at: new Date().toISOString(),
         last_interaction: new Date().toISOString()
     };
     
     db.pets.set(pet._id, pet);
     
-    // Добавить стартовые предметы
+    // Стартовые предметы
     addToInventory(req.userId, 'apple', 3);
-    addToInventory(req.userId, 'cookie', 2);
     
     res.json(pet);
 });
 
-app.put('/api/pets/:id', verifyToken, (req, res) => {
+app.put('/api/pets/:id', authMiddleware, (req, res) => {
     const pet = db.pets.get(req.params.id);
+    if (!pet) return res.status(404).json({ error: 'Not found' });
+    if (!pet.owner_ids.includes(req.userId)) return res.status(403).json({ error: 'Forbidden' });
     
-    if (!pet) {
-        return res.status(404).json({ error: 'Pet not found' });
+    const { action, value } = req.body;
+    
+    switch (action) {
+        case 'feed':
+            pet.stats.hunger = Math.min(100, pet.stats.hunger + (value?.hunger || 20));
+            pet.stats.hp = Math.min(100, pet.stats.hp + (value?.hp || 5));
+            pet.stats.xp += 2;
+            break;
+        case 'play':
+            pet.stats.mood = Math.min(100, pet.stats.mood + (value?.mood || 15));
+            pet.stats.xp += 5;
+            break;
+        case 'care':
+            pet.stats.hp = Math.min(100, pet.stats.hp + (value?.hp || 10));
+            pet.stats.mood = Math.min(100, pet.stats.mood + (value?.mood || 5));
+            break;
     }
     
-    if (!pet.owner_ids.includes(req.userId)) {
-        return res.status(403).json({ error: 'Not your pet' });
-    }
-    
-    const { action, item } = req.body;
-    
-    if (action === 'feed') {
-        pet.stats.hunger = Math.min(100, pet.stats.hunger + (item?.hunger || 20));
-        pet.stats.hp = Math.min(100, pet.stats.hp + (item?.hp || 5));
-        pet.stats.mood = Math.min(100, pet.stats.mood + (item?.mood || 0));
-        pet.stats.xp += item?.xp || 2;
-    } else if (action === 'play') {
-        pet.stats.mood = Math.min(100, pet.stats.mood + (item?.mood || 15));
-        pet.stats.hunger = Math.max(0, pet.stats.hunger - (item?.hunger || 5));
-        pet.stats.xp += 5;
-    } else if (action === 'care') {
-        pet.stats.hp = Math.min(100, pet.stats.hp + (item?.hp || 5));
-        pet.stats.mood = Math.min(100, pet.stats.mood + (item?.mood || 5));
-    }
-    
-    // Level up check
+    // Level up
     const xpNeeded = 100 * pet.stats.level;
     while (pet.stats.xp >= xpNeeded) {
         pet.stats.xp -= xpNeeded;
         pet.stats.level++;
-        if ([5, 10, 15].includes(pet.stats.level)) {
-            pet.evolution_stage = Math.floor(pet.stats.level / 5) + 1;
-        }
     }
     
     pet.last_interaction = new Date().toISOString();
@@ -249,47 +220,54 @@ app.put('/api/pets/:id', verifyToken, (req, res) => {
     res.json(pet);
 });
 
-app.post('/api/pets/:id/invite', verifyToken, (req, res) => {
+app.delete('/api/pets/:id', authMiddleware, (req, res) => {
     const pet = db.pets.get(req.params.id);
-    
-    if (!pet) {
-        return res.status(404).json({ error: 'Pet not found' });
+    if (!pet || !pet.owner_ids.includes(req.userId)) {
+        return res.status(403).json({ error: 'Cannot delete' });
     }
-    
-    if (!pet.owner_ids.includes(req.userId)) {
-        return res.status(403).json({ error: 'Not your pet' });
-    }
-    
-    // Создаём приглашение (в реальном приложении - через Telegram бот)
-    const inviteCode = crypto.randomUUID().substring(0, 8).toUpperCase();
-    
-    res.json({
-        invite_code: inviteCode,
-        pet_name: pet.name
-    });
+    db.pets.delete(req.params.id);
+    res.json({ success: true });
 });
 
-app.post('/api/pets/join', verifyToken, (req, res) => {
-    const { inviteCode } = req.body;
+// ============ INVITES ============
+app.post('/api/pets/:id/invite', authMiddleware, (req, res) => {
+    const pet = db.pets.get(req.params.id);
+    if (!pet) return res.status(404).json({ error: 'Pet not found' });
+    if (!pet.owner_ids.includes(req.userId)) return res.status(403).json({ error: 'Not owner' });
     
-    // Найти питомца по коду приглашения (упрощённо)
-    // В реальном приложении - база приглашений
-    const allPets = Array.from(db.pets.values());
-    const pet = allPets.find(p => p.invite_code === inviteCode);
+    // Генерируем код
+    const code = crypto.randomUUID().substring(0, 8).toUpperCase();
     
-    if (!pet) {
-        return res.status(404).json({ error: 'Invalid invite code' });
-    }
+    db.invites.set(code, {
+        petId: pet._id,
+        ownerId: req.userId,
+        createdAt: Date.now()
+    });
+    
+    res.json({ code, petName: pet.name });
+});
+
+app.post('/api/join', authMiddleware, (req, res) => {
+    const { code } = req.body;
+    
+    const invite = db.invites.get(code?.toUpperCase());
+    if (!invite) return res.status(404).json({ error: 'Invalid code' });
+    
+    const pet = db.pets.get(invite.petId);
+    if (!pet) return res.status(404).json({ error: 'Pet not found' });
     
     if (pet.owner_ids.includes(req.userId)) {
-        return res.status(400).json({ error: 'Already an owner' });
+        return res.status(400).json({ error: 'Already owner' });
     }
     
+    // Добавляем нового владельца
     pet.owner_ids.push(req.userId);
-    delete pet.invite_code;
     db.pets.set(pet._id, pet);
     
-    res.json(pet);
+    // Удаляем использованный код
+    db.invites.delete(code.toUpperCase());
+    
+    res.json({ pet, success: true });
 });
 
 // ============ INVENTORY ============
@@ -310,97 +288,32 @@ function addToInventory(userId, itemId, count) {
     }
 }
 
-app.get('/api/inventory', verifyToken, (req, res) => {
-    const userInventory = Array.from(db.inventory.values())
-        .filter(i => i.user_id === req.userId);
-    
-    res.json(userInventory);
+app.get('/api/inventory', authMiddleware, (req, res) => {
+    const items = Array.from(db.inventory.values()).filter(i => i.user_id === req.userId);
+    res.json(items);
 });
 
-app.post('/api/inventory', verifyToken, (req, res) => {
+app.post('/api/inventory', authMiddleware, (req, res) => {
     const { item_id, count } = req.body;
     addToInventory(req.userId, item_id, count || 1);
     res.json({ success: true });
 });
 
-app.delete('/api/inventory/:itemId', verifyToken, (req, res) => {
+app.delete('/api/inventory/:itemId', authMiddleware, (req, res) => {
     const key = `${req.userId}:${req.params.itemId}`;
     const item = db.inventory.get(key);
     
-    if (!item || item.count < 1) {
-        return res.status(400).json({ error: 'No such item' });
-    }
-    
-    item.count--;
-    
-    if (item.count <= 0) {
-        db.inventory.delete(key);
-    } else {
-        db.inventory.set(key, item);
+    if (item && item.count > 0) {
+        item.count--;
+        if (item.count <= 0) db.inventory.delete(key);
+        else db.inventory.set(key, item);
     }
     
     res.json({ success: true });
 });
 
-// ============ QUESTS ============
-app.get('/api/quests', verifyToken, (req, res) => {
-    const userQuests = Array.from(db.quests.values())
-        .filter(q => q.user_id === req.userId);
-    
-    res.json(userQuests);
-});
-
-app.post('/api/quests/progress', verifyToken, (req, res) => {
-    const { action, amount } = req.body;
-    
-    let quest = Array.from(db.quests.values())
-        .find(q => q.user_id === req.userId && q.action === action && !q.completed);
-    
-    if (!quest) {
-        // Создать новый квест
-        quest = {
-            _id: crypto.randomUUID(),
-            user_id: req.userId,
-            action: action,
-            target: getQuestTarget(action),
-            progress: 0,
-            completed: false,
-            reward: getQuestReward(action)
-        };
-        db.quests.set(quest._id, quest);
-    }
-    
-    quest.progress += amount || 1;
-    
-    if (quest.progress >= quest.target && !quest.completed) {
-        quest.completed = true;
-        quest.completed_at = new Date().toISOString();
-        
-        // Выдать награду
-        const user = db.users.get(req.userId);
-        if (user) {
-            user.coins += quest.reward;
-            db.users.set(user._id, user);
-        }
-    }
-    
-    db.quests.set(quest._id, quest);
-    
-    res.json(quest);
-});
-
-function getQuestTarget(action) {
-    const targets = { feed: 5, play: 3, visit: 3, earn: 100, spin: 1, levelup: 1 };
-    return targets[action] || 1;
-}
-
-function getQuestReward(action) {
-    const rewards = { feed: 15, play: 20, visit: 30, earn: 50, spin: 10, levelup: 40 };
-    return rewards[action] || 10;
-}
-
-// ============ WHEEL OF FORTUNE ============
-app.post('/api/wheel/spin', verifyToken, (req, res) => {
+// ============ WHEEL ============
+app.post('/api/wheel/spin', authMiddleware, (req, res) => {
     const key = `wheel:${req.userId}`;
     const lastSpin = db.cooldowns.get(key);
     
@@ -410,15 +323,12 @@ app.post('/api/wheel/spin', verifyToken, (req, res) => {
     
     db.cooldowns.set(key, Date.now());
     
-    // Приз
     const prizes = [
         { type: 'coins', amount: 10 },
         { type: 'coins', amount: 25 },
         { type: 'coins', amount: 50 },
-        { type: 'coins', amount: 100 },
         { type: 'item', item: 'apple', count: 3 },
-        { type: 'item', item: 'cookie', count: 2 },
-        { type: 'xp', amount: 50 }
+        { type: 'xp', amount: 30 }
     ];
     
     const prize = prizes[Math.floor(Math.random() * prizes.length)];
@@ -429,19 +339,13 @@ app.post('/api/wheel/spin', verifyToken, (req, res) => {
         db.users.set(user._id, user);
     } else if (prize.type === 'item') {
         addToInventory(req.userId, prize.item, prize.count);
-    } else if (prize.type === 'xp') {
-        // Добавить XP всем питомцам
-        const userPets = Array.from(db.pets.values()).filter(p => p.owner_ids.includes(req.userId));
-        userPets.forEach(pet => {
-            pet.stats.xp += prize.amount;
-        });
     }
     
     res.json({ prize });
 });
 
 // ============ COINS ============
-app.post('/api/coins', verifyToken, (req, res) => {
+app.post('/api/coins', authMiddleware, (req, res) => {
     const { amount } = req.body;
     const user = db.users.get(req.userId);
     
@@ -458,26 +362,25 @@ app.post('/api/coins', verifyToken, (req, res) => {
 });
 
 // ============ EVENTS ============
-app.get('/api/events', verifyToken, (req, res) => {
-    const userEvents = Array.from(db.events.values())
+app.get('/api/events', authMiddleware, (req, res) => {
+    const events = Array.from(db.events.values())
         .filter(e => e.user_id === req.userId)
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 50);
     
-    res.json(userEvents);
+    res.json(events);
 });
 
-app.post('/api/events', verifyToken, (req, res) => {
-    const { pet_id, icon, title, is_special, is_warning } = req.body;
+app.post('/api/events', authMiddleware, (req, res) => {
+    const { pet_id, icon, title, is_special } = req.body;
     
     const event = {
         _id: crypto.randomUUID(),
-        pet_id: pet_id,
+        pet_id,
         user_id: req.userId,
-        icon: icon,
-        title: title,
+        icon,
+        title,
         is_special: is_special || false,
-        is_warning: is_warning || false,
         created_at: new Date().toISOString()
     };
     
@@ -485,7 +388,22 @@ app.post('/api/events', verifyToken, (req, res) => {
     res.json(event);
 });
 
+// ============ HEALTH CHECK ============
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'ok', 
+        uptime: process.uptime(),
+        users: db.users.size,
+        pets: db.pets.size
+    });
+});
+
+app.get('/', (req, res) => {
+    res.send('🐾 PetFriends API Server Running!');
+});
+
 // ============ START ============
-app.listen(PORT, () => {
-    console.log(`🐾 PetFriends API running on port ${PORT}`);
+app.listen(PORT, HOST, () => {
+    console.log(`🐾 PetFriends API running on http://${HOST}:${PORT}`);
+    console.log(`📡 Accepting connections from anywhere`);
 });
